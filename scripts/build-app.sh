@@ -26,6 +26,23 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
+# macOS 26+ adaptive icon (light / dark / tinted / clear) from the Icon Composer file.
+# Needs Xcode 26+; on older Xcode we silently keep only the classic .icns above.
+if xcrun actool --version >/dev/null 2>&1; then
+  if xcrun actool Resources/AppIcon.icon \
+      --compile "$APP/Contents/Resources" \
+      --platform macosx --minimum-deployment-target 14.0 \
+      --app-icon AppIcon \
+      --output-partial-info-plist "$OUT/icon-partial.plist" \
+      --output-format human-readable-text; then
+    # actool may write its own AppIcon.icns; regenerate ours if it was removed
+    [ -f "$APP/Contents/Resources/AppIcon.icns" ] || iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+    echo "Adaptive icon compiled into Assets.car"
+  else
+    echo "warning: actool could not compile AppIcon.icon; using classic icon only"
+  fi
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,6 +53,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.stefanoneve.slash</string>
   <key>CFBundleExecutable</key><string>Slash</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>

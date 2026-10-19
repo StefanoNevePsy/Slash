@@ -18,9 +18,15 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - name: Use latest Xcode (needed for the adaptive icon)
+        run: |
+          X=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $X"
+          sudo xcode-select -s "$X"
 
       - name: Compute version
         id: v
