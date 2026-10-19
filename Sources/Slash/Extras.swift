@@ -732,3 +732,50 @@ struct CloudMenu: View {
         }
     }
 }
+
+// MARK: - Sidebar: cloud locations (Google Drive, iCloud, Dropbox, OneDrive…)
+
+struct CloudLocation: Identifiable, Hashable {
+    let title: String
+    let url: URL
+    let symbol: String
+    var id: URL { url }
+}
+
+extension Locations {
+    /// Folders under ~/Library/CloudStorage plus iCloud Drive.
+    /// Google Drive gets one entry per top folder ("My Drive", "Shared drives"…), like Finder.
+    static func cloud() -> [CloudLocation] {
+        let fm = FileManager.default
+        var out: [CloudLocation] = []
+        let storage = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
+        let providers = ((try? fm.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for dir in providers {
+            let raw = dir.lastPathComponent
+            if raw.hasPrefix("GoogleDrive") {
+                let account = raw.split(separator: "-", maxSplits: 1).dropFirst().first.map(String.init)
+                let children = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                if children.isEmpty {
+                    out.append(CloudLocation(title: "Google Drive", url: dir, symbol: "externaldrive.connected.to.line.below"))
+                }
+                for child in children {
+                    let suffix = providers.filter { $0.lastPathComponent.hasPrefix("GoogleDrive") }.count > 1 ? " · \(account ?? "")" : ""
+                    out.append(CloudLocation(title: child.lastPathComponent + suffix, url: child,
+                                             symbol: child.lastPathComponent.localizedCaseInsensitiveContains("condivis") ||
+                                                     child.lastPathComponent.localizedCaseInsensitiveContains("shared")
+                                                     ? "person.2.fill" : "externaldrive.connected.to.line.below"))
+                }
+            } else {
+                let name = raw.split(separator: "-").first.map(String.init) ?? raw
+                out.append(CloudLocation(title: name, url: dir, symbol: "cloud"))
+            }
+        }
+        let icloud = Workspace.iCloudDrive
+        if fm.fileExists(atPath: icloud.path) {
+            out.append(CloudLocation(title: "iCloud Drive", url: icloud, symbol: "icloud"))
+        }
+        return out
+    }
+}

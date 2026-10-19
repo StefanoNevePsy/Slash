@@ -170,6 +170,30 @@ struct SidebarView: View {
                         }
                     }
                 }
+                Section("Cloud") {
+                    ForEach(Locations.cloud()) { loc in
+                        Button { workspace.open(loc.url) } label: {
+                            Label {
+                                Text(loc.title).lineLimit(1)
+                            } icon: {
+                                if store.icon(for: loc.url.path) != nil {
+                                    FolderIconView(url: loc.url, isDirectory: true, size: 15)
+                                } else {
+                                    Image(systemName: loc.symbol)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Open in New Tab") { workspace.open(loc.url, newTab: true) }
+                            Button("Pin to Sidebar") { store.pin(loc.url.path) }
+                        }
+                        .dropDestination(for: URL.self) { urls, _ in
+                            FileOps.move(urls, to: loc.url, copy: NSEvent.modifierFlags.contains(.option), store: store)
+                            return true
+                        }
+                    }
+                }
                 Section("Locations") {
                     ForEach(Locations.volumes(), id: \.self) { vol in
                         Button { workspace.open(vol) } label: {
