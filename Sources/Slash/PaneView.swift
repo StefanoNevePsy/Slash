@@ -418,7 +418,8 @@ struct FolderViewEditor: View {
             if set.views.count > 1 {
                 Button("Delete This View", role: .destructive) {
                     var s = set
-                    s.views.removeAll { $0.id == s.active.id }
+                    let activeID = s.active.id
+                    s.views.removeAll { $0.id == activeID }
                     s.activeID = s.views.first?.id
                     store.setViewSet(s, for: folderPath)
                 }
