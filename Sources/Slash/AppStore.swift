@@ -10,9 +10,30 @@ final class AppStore {
     @ObservationIgnored private var saveWork: DispatchWorkItem?
     @ObservationIgnored private let fileURL: URL
 
-    init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Where state.json lives: Application Support, or iCloud Drive when "Sync between Macs" is on.
+    static func storageDirectory(sync: Bool) -> URL {
+        if sync {
+            return Workspace.iCloudDrive.appendingPathComponent("Slash", isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Slash", isDirectory: true)
+    }
+
+    static var syncEnabled: Bool { UserDefaults.standard.bool(forKey: "syncWithICloud") }
+
+    /// Copies the data to the other location; the switch takes effect at the next launch.
+    func setSync(_ enabled: Bool) {
+        let dir = Self.storageDirectory(sync: enabled)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent("state.json")
+        if !FileManager.default.fileExists(atPath: dest.path), let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: dest, options: .atomic)
+        }
+        UserDefaults.standard.set(enabled, forKey: "syncWithICloud")
+    }
+
+    init() {
+        let dir = Self.storageDirectory(sync: Self.syncEnabled)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("state.json")
 
@@ -109,12 +130,141 @@ final class AppStore {
         }
     }
 
-    /// Keeps properties attached when a file is renamed/moved inside the app.
+    /// Keeps Slash metadata attached when a file or folder (and everything inside it) is renamed/moved in the app.
     func moveMetadata(from old: String, to new: String) {
-        if let s = state.selections.removeValue(forKey: old) { state.selections[new] = s }
-        if let n = state.nicknames.removeValue(forKey: old) { state.nicknames[new] = n }
-        if let v = state.folderViews.removeValue(forKey: old) { state.folderViews[new] = v }
-        if let i = state.folderIcons?.removeValue(forKey: old) { state.folderIcons?[new] = i }
+        var s = state
+        func remap<V>(_ dict: inout [String: V]) {
+            for key in dict.keys where key == old || key.hasPrefix(old + "/") {
+                let newKey = new + key.dropFirst(old.count)
+                dict[newKey] = dict.removeValue(forKey: key)
+            }
+        }
+        remap(&s.selections)
+        remap(&s.nicknames)
+        remap(&s.folderViews)
+        if var icons = s.folderIcons { remap(&icons); s.folderIcons = icons }
+        if var notes = s.folderNotes { remap(&notes); s.folderNotes = notes }
+        remap(&s.relations)
+        s.reminders = s.reminders?.map { r in
+            var r = r
+            if r.path == old || r.path.hasPrefix(old + "/") { r.path = new + r.path.dropFirst(old.count) }
+            return r
+        }
+        for i in s.spaces.indices {
+            s.spaces[i].pinnedPaths = s.spaces[i].pinnedPaths.map { p in
+                p == old || p.hasPrefix(old + "/") ? new + p.dropFirst(old.count) : p
+            }
+        }
+        state = s
+    }
+
+    // MARK: Templates
+
+    static let defaultTemplates = [
+        FolderTemplate(name: "Nuovo caso",
+                       subfolders: ["Anamnesi", "Test", "Relazioni", "Comunicazioni scuola", "Consensi"],
+                       icon: FolderIcon(symbol: "person.fill", color: .blue))
+    ]
+
+    var templates: [FolderTemplate] {
+        get { state.templates ?? Self.defaultTemplates }
+        set { state.templates = newValue }
+    }
+
+    /// Creates `name` inside `parent` with the template's subfolders and icon. Returns the new folder.
+    func createFromTemplate(_ template: FolderTemplate, named name: String, in parent: URL) throws -> URL {
+        let root = FileOps.uniqueDestination(for: name, in: parent)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        for sub in template.subfolders {
+            let clean = sub.trimmingCharacters(in: .whitespaces)
+            guard !clean.isEmpty else { continue }
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(clean), withIntermediateDirectories: true)
+        }
+        if let icon = template.icon { setIcon(icon, for: root.path) }
+        return root
+    }
+
+    // MARK: Smart folders
+
+    var smartFolders: [SmartFolder] {
+        get { state.smartFolders ?? [] }
+        set { state.smartFolders = newValue }
+    }
+
+    /// Runs a smart folder's search. Property criteria come from Slash's own data (instant);
+    /// name / date criteria scan the Space's pinned folders.
+    func results(for smart: SmartFolder) async -> [FileItem] {
+        let selections = state.selections
+        let roots = (state.spaces.first { $0.id == smart.spaceID } ?? currentSpace)?.pinnedPaths ?? []
+        return await Task.detached(priority: .utility) {
+            let cutoff = smart.modifiedWithinDays.map { Date().addingTimeInterval(-Double($0) * 86400) }
+            let name = smart.nameContains?.trimmingCharacters(in: .whitespaces) ?? ""
+            func matches(_ item: FileItem) -> Bool {
+                if !name.isEmpty, !item.name.localizedCaseInsensitiveContains(name) { return false }
+                if let cutoff, (item.modified ?? .distantPast) < cutoff { return false }
+                return true
+            }
+            if let prop = smart.propertyID, let opt = smart.optionID {
+                return selections
+                    .filter { $0.value[prop] == opt && FileManager.default.fileExists(atPath: $0.key) }
+                    .map { FileItem.load(URL(fileURLWithPath: $0.key)) }
+                    .filter(matches)
+                    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            }
+            var out: [FileItem] = []
+            for root in roots {
+                guard let e = FileManager.default.enumerator(at: URL(fileURLWithPath: root), includingPropertiesForKeys: FileItem.resourceKeys,
+                                                             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
+                for case let url as URL in e {
+                    let item = FileItem.load(url)
+                    if matches(item) { out.append(item) }
+                    if out.count >= 500 { break }
+                }
+            }
+            return out.sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }
+        }.value
+    }
+
+    // MARK: Notes, reminders, related items
+
+    func note(for path: String) -> String { state.folderNotes?[path] ?? "" }
+
+    func setNote(_ text: String, for path: String) {
+        var notes = state.folderNotes ?? [:]
+        notes[path] = text.isEmpty ? nil : text
+        state.folderNotes = notes
+    }
+
+    var reminders: [FileReminder] {
+        get { state.reminders ?? [] }
+        set { state.reminders = newValue }
+    }
+
+    func relations(for path: String) -> FolderRelations { state.relations[path] ?? FolderRelations() }
+
+    /// Links two folders both ways.
+    func relate(_ a: String, _ b: String) {
+        guard a != b else { return }
+        var ra = relations(for: a), rb = relations(for: b)
+        if !ra.relatedPaths.contains(b) { ra.relatedPaths.append(b) }
+        if !rb.relatedPaths.contains(a) { rb.relatedPaths.append(a) }
+        state.relations[a] = ra
+        state.relations[b] = rb
+    }
+
+    func unrelate(_ a: String, _ b: String) {
+        state.relations[a]?.relatedPaths.removeAll { $0 == b }
+        state.relations[b]?.relatedPaths.removeAll { $0 == a }
+    }
+
+    func addLink(_ link: String, to path: String) {
+        var r = relations(for: path)
+        if !r.urls.contains(link) { r.urls.append(link) }
+        state.relations[path] = r
+    }
+
+    func removeLink(_ link: String, from path: String) {
+        state.relations[path]?.urls.removeAll { $0 == link }
     }
 
     // MARK: Folder views

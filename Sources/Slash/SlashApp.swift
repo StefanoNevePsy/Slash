@@ -96,7 +96,15 @@ struct SlashCommands: Commands {
             Divider()
             Button("Get Info") { workspace?.getInfo() }
                 .keyboardShortcut("i")
-            Button("Rename") { workspace?.beginRename() }
+            Button("Rename…") {
+                guard let w = workspace else { return }
+                if w.focusedPane.selection.count > 1 { w.showBatchRename = true } else { w.beginRename() }
+            }
+            Menu("New Folder from Template") {
+                ForEach(workspace?.store?.templates ?? []) { t in
+                    Button(t.name) { workspace?.pendingTemplate = t }
+                }
+            }
             Button("Duplicate") { workspace?.duplicateSelection() }
                 .keyboardShortcut("d")
             Button("Make Alias") { workspace?.makeAlias() }
@@ -223,15 +231,29 @@ struct SlashCommands: Commands {
 }
 
 struct SettingsView: View {
+    @Environment(AppStore.self) private var store
     @AppStorage("autoUpdate") private var autoUpdate = true
+    @State private var sync = AppStore.syncEnabled
 
     var body: some View {
-        Form {
-            Toggle("Check for updates automatically", isOn: $autoUpdate)
-            Text("Version \(Updater.currentVersion)").foregroundStyle(.secondary)
-            Button("Check Now") { Updater.shared.checkNow() }
+        TabView {
+            Form {
+                Toggle("Check for updates automatically", isOn: $autoUpdate)
+                Text("Version \(Updater.currentVersion)").foregroundStyle(.secondary)
+                Button("Check Now") { Updater.shared.checkNow() }
+                Divider()
+                Toggle("Sync Spaces, properties, icons and views between Macs (iCloud Drive)", isOn: Binding(
+                    get: { sync },
+                    set: { sync = $0; store.setSync($0) }
+                ))
+                Text("Takes effect the next time Slash starts.").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(20)
+            .tabItem { Label("General", systemImage: "gearshape") }
+
+            TemplatesSettings()
+                .tabItem { Label("Templates", systemImage: "folder.badge.plus") }
         }
-        .padding(20)
-        .frame(width: 360)
+        .frame(width: 560, height: 360)
     }
 }

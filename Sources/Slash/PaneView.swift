@@ -10,6 +10,7 @@ struct PaneView: View {
     @State private var nicknameText = ""
     @State private var iconTarget: IdentifiedURL?
     @State private var subfolderResults: [FileItem] = []
+    @State private var addingWebLink = false
 
     private var tab: FolderTab { pane.activeTab }
     private var isFocused: Bool { workspace.focusedPaneID == pane.id }
@@ -53,6 +54,15 @@ struct PaneView: View {
         .sheet(item: $iconTarget) { target in
             IconPickerView(path: target.url.path).environment(store)
         }
+        .sheet(isPresented: $addingWebLink) {
+            PromptSheet(title: "Add Web Link", placeholder: "https://…", action: "Add") { text in
+                var link = text.trimmingCharacters(in: .whitespaces)
+                guard !link.isEmpty else { return false }
+                if !link.contains("://") { link = "https://" + link }
+                store.addLink(link, to: folderPath)
+                return true
+            }
+        }
         .popover(isPresented: Binding(get: { pane.showViewOptions }, set: { pane.showViewOptions = $0 })) {
             FolderViewEditor(folderPath: folderPath)
                 .environment(store)
@@ -92,6 +102,12 @@ struct PaneView: View {
                 .help("Search (⌘F)")
             Menu {
                 Button("Pin to Sidebar") { store.pin(folderPath) }
+                Menu("New Folder from Template") {
+                    ForEach(store.templates) { t in
+                        Button(t.name) { focus(); workspace.pendingTemplate = t }
+                    }
+                }
+                RelatedMenu(folder: tab.url, tab: tab) { addingWebLink = true }
                 Button("Set Folder Icon…") { iconTarget = IdentifiedURL(url: tab.url) }
                 Button("New Folder") { focus(); workspace.newFolder() }
                 Button("Open in Finder") { NSWorkspace.shared.open(tab.url) }
@@ -345,6 +361,8 @@ struct PaneView: View {
             Button("Get Info") { focus(); pane.selection = Set(urls); workspace.getInfo() }
             if urls.count == 1 {
                 Button("Rename") { focus(); pane.selection = Set(urls); workspace.beginRename() }
+            } else {
+                Button("Rename \(urls.count) Items…") { focus(); pane.selection = Set(urls); workspace.showBatchRename = true }
             }
             Button("Duplicate") { focus(); pane.selection = Set(urls); workspace.duplicateSelection() }
             Button("Make Alias") { focus(); pane.selection = Set(urls); workspace.makeAlias() }

@@ -150,6 +150,9 @@ final class Workspace {
     var showPalette = false
     var showGoToFolder = false
     var showConnectToServer = false
+    var pendingTemplate: FolderTemplate?
+    var showBatchRename = false
+    var showOverview = false
     @ObservationIgnored weak var store: AppStore?
 
     init(store: AppStore) {

@@ -58,6 +58,9 @@ struct Space: Identifiable, Codable, Hashable {
     var pinnedPaths: [String] = []
     /// Space-wide links (shown in the Overview page)
     var links: [String] = []
+    /// Locked with Touch ID / password, hidden from screen sharing. Optional for old state files.
+    var isPrivate: Bool?
+    var notes: String?
 }
 
 // MARK: - Properties (custom metadata)
@@ -180,6 +183,45 @@ struct FolderIcon: Codable, Hashable {
     var color: PropertyColor = .blue
 }
 
+// MARK: - Templates, smart folders, reminders, download rules
+
+/// "New Folder from Template": a folder created with ready-made subfolders.
+struct FolderTemplate: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    /// Relative paths, one per subfolder ("Test/Somministrati" creates nested folders)
+    var subfolders: [String]
+    var icon: FolderIcon?
+}
+
+/// A saved search across the current Space, always up to date.
+struct SmartFolder: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    var spaceID: UUID?
+    var propertyID: String?
+    var optionID: String?
+    var nameContains: String?
+    var modifiedWithinDays: Int?
+}
+
+struct FileReminder: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var path: String
+    var date: Date
+    var note: String
+}
+
+/// Moves new files from Downloads into a folder when their name / extension match.
+struct DownloadRule: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var nameContains: String = ""
+    /// Without dot, e.g. "pdf". Empty = any.
+    var fileExtension: String = ""
+    var destination: String = ""
+    var enabled = true
+}
+
 // MARK: - Related items
 
 struct FolderRelations: Codable, Hashable {
@@ -201,4 +243,9 @@ struct PersistedState: Codable {
     var recentFolders: [String] = []
     /// Optional so state files saved by older versions still load.
     var folderIcons: [String: FolderIcon]?
+    var templates: [FolderTemplate]?
+    var smartFolders: [SmartFolder]?
+    var reminders: [FileReminder]?
+    var folderNotes: [String: String]?
+    var downloadRules: [DownloadRule]?
 }

@@ -23,6 +23,8 @@ struct ContentView: View {
         .onChange(of: workspace.session) { workspace.saveSession() }
         .toolbar {
             ToolbarItemGroup {
+                Button { workspace.showOverview = true } label: { Label("Overview", systemImage: "house") }
+                    .help("Space overview")
                 Button { workspace.split() } label: { Label("Split", systemImage: "rectangle.split.2x1") }
                     .help("Split pane (⌘\\)")
                 Button { workspace.showPalette = true } label: { Label("Go to", systemImage: "magnifyingglass") }
@@ -32,6 +34,15 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { workspace.showPalette }, set: { workspace.showPalette = $0 })) {
             CommandPaletteView(workspace: workspace)
                 .environment(store)
+        }
+        .sheet(item: Binding(get: { workspace.pendingTemplate }, set: { workspace.pendingTemplate = $0 })) { template in
+            TemplateNameSheet(workspace: workspace, template: template).environment(store)
+        }
+        .sheet(isPresented: Binding(get: { workspace.showBatchRename }, set: { workspace.showBatchRename = $0 })) {
+            BatchRenameSheet(workspace: workspace).environment(store)
+        }
+        .sheet(isPresented: Binding(get: { workspace.showOverview }, set: { workspace.showOverview = $0 })) {
+            SpaceOverview(workspace: workspace).environment(store)
         }
         .sheet(isPresented: Binding(get: { workspace.showGoToFolder }, set: { workspace.showGoToFolder = $0 })) {
             PromptSheet(title: "Go to Folder", placeholder: "~/Documents or /Volumes/…", action: "Go") { text in
@@ -69,6 +80,7 @@ struct SidebarView: View {
     @State private var addingSpace = false
     @State private var liveItems: [FileItem] = []
     @State private var iconTarget: IdentifiedURL?
+    @State private var editingSmart: SmartFolder?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,6 +121,19 @@ struct SidebarView: View {
                         .draggable(item.url)
                     }
                 }
+                Section {
+                    ForEach(store.smartFolders.filter { $0.spaceID == nil || $0.spaceID == store.currentSpace?.id }) { smart in
+                        SmartFolderRow(smart: smart, workspace: workspace) { editingSmart = smart }
+                    }
+                } header: {
+                    HStack {
+                        Text("Smart Folders")
+                        Spacer()
+                        Button { editingSmart = SmartFolder(name: "", spaceID: store.currentSpace?.id) } label: { Image(systemName: "plus") }
+                            .buttonStyle(.borderless)
+                            .help("New smart folder")
+                    }
+                }
                 Section("Recent folders") {
                     ForEach(store.state.recentFolders.prefix(6), id: \.self) { path in
                         Button { workspace.open(URL(fileURLWithPath: path)) } label: {
@@ -131,6 +156,9 @@ struct SidebarView: View {
         .task(id: store.currentSpace?.pinnedPaths) { await refreshLive() }
         .sheet(item: $iconTarget) { target in
             IconPickerView(path: target.url.path).environment(store)
+        }
+        .sheet(item: $editingSmart) { smart in
+            SmartFolderEditor(smart: smart).environment(store)
         }
         .alert("New Space", isPresented: $addingSpace) {
             TextField("Name", text: $newSpaceName)
