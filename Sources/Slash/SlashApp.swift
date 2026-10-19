@@ -114,6 +114,18 @@ struct SlashCommands: Commands {
         }
 
         // MARK: Edit (works on files, or on text while typing)
+        CommandGroup(replacing: .undoRedo) {
+            Button(Workspace.isEditingText ? "Undo" : FileUndo.shared.undoTitle) {
+                if Workspace.isEditingText {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                } else {
+                    FileUndo.shared.undo(store: workspace?.store)
+                }
+            }
+            .keyboardShortcut("z")
+            Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
                 .keyboardShortcut("x")

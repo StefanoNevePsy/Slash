@@ -57,13 +57,22 @@ extension Workspace {
                 NSAlert(error: error).runModal()
             }
         }
+        FileUndo.shared.record("Duplicate", created.map { .created($0) })
         if !created.isEmpty { focusedPane.selection = created }
     }
 
     func trashSelection() {
+        var ops: [UndoOp] = []
         for url in selectedURLs {
-            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { NSAlert(error: error).runModal() }
+            do {
+                var trashed: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+                if let t = trashed as URL? { ops.append(.trashed(original: url, trashed: t)) }
+            } catch {
+                NSAlert(error: error).runModal()
+            }
         }
+        FileUndo.shared.record("Move to Trash", ops)
         focusedPane.selection = []
     }
 
@@ -76,6 +85,7 @@ extension Workspace {
         }
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            FileUndo.shared.record("New Folder", [.created(url)])
             focusedPane.selection = [url]
             focusedPane.renaming = url
         } catch {
@@ -97,6 +107,7 @@ extension Workspace {
         do {
             try FileManager.default.moveItem(at: url, to: dest)
             store?.moveMetadata(from: url.path, to: dest.path)
+            FileUndo.shared.record("Rename", [.moved(from: url, to: dest)])
             focusedPane.selection = [dest]
         } catch {
             NSAlert(error: error).runModal()
@@ -125,6 +136,7 @@ extension Workspace {
             do {
                 let data = try src.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil)
                 try URL.writeBookmarkData(data, to: dest)
+                FileUndo.shared.record("Make Alias", [.created(dest)])
             } catch {
                 NSAlert(error: error).runModal()
             }

@@ -117,7 +117,7 @@ struct PaneView: View {
                 .onKeyPress(.escape) { pane.searchActive = false; pane.searchText = ""; return .handled }
             Picker("", selection: Binding(get: { pane.searchSubfolders }, set: { pane.searchSubfolders = $0 })) {
                 Text("This folder").tag(false)
-                Text("Include subfolders").tag(true)
+                Text("Subfolders & contents").tag(true)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -198,6 +198,14 @@ struct PaneView: View {
             }
             return out
         }.value
+        // Spotlight adds files whose *contents* match (PDF, Word, text…), where the folder is indexed.
+        let byContent = await SpotlightSearch.find(q, in: root)
+        if Task.isCancelled { return }
+        var seen = Set(subfolderResults.map(\.url.standardizedFileURL))
+        let extra = byContent.filter { seen.insert($0.standardizedFileURL).inserted }
+        if !extra.isEmpty {
+            subfolderResults += await Task.detached { extra.map(FileItem.load) }.value
+        }
     }
 
     private func focus() { workspace.focusedPaneID = pane.id }

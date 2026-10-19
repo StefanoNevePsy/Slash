@@ -5,23 +5,9 @@ import UniformTypeIdentifiers
 import Quartz
 
 enum FileOps {
-    /// Moves (or copies) files into a folder, keeping Slash metadata attached on move.
+    /// Moves (or copies) files into a folder in the background, with progress, conflict handling and undo.
     static func move(_ urls: [URL], to folder: URL, copy: Bool, store: AppStore) {
-        for src in urls {
-            guard src.deletingLastPathComponent().standardizedFileURL != folder.standardizedFileURL || copy else { continue }
-            guard src != folder else { continue }
-            let dest = uniqueDestination(for: src.lastPathComponent, in: folder)
-            do {
-                if copy {
-                    try FileManager.default.copyItem(at: src, to: dest)
-                } else {
-                    try FileManager.default.moveItem(at: src, to: dest)
-                    store.moveMetadata(from: src.path, to: dest.path)
-                }
-            } catch {
-                NSAlert(error: error).runModal()
-            }
-        }
+        FileTransfer.shared.run(urls, to: folder, copy: copy, store: store)
     }
 
     static func uniqueDestination(for name: String, in folder: URL) -> URL {

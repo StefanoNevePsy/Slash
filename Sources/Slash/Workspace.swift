@@ -154,11 +154,57 @@ final class Workspace {
 
     init(store: AppStore) {
         self.store = store
+        if let restored = Workspace.restoredPanes(store: store) {
+            panes = restored.panes
+            focusedPaneID = restored.panes[min(restored.focused, restored.panes.count - 1)].id
+            return
+        }
         let start = store.currentSpace?.pinnedPaths.first.map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser
         let p = Pane(url: start, store: store)
         panes = [p]
         focusedPaneID = p.id
+    }
+
+    // MARK: Session (panes & tabs come back after quitting)
+
+    struct Session: Codable, Equatable {
+        var panes: [[String]]
+        var activeTabs: [Int]
+        var focused: Int
+    }
+
+    private static let sessionKey = "lastSession"
+
+    var session: Session {
+        Session(
+            panes: panes.map { $0.tabs.map(\.url.path) },
+            activeTabs: panes.map { p in p.tabs.firstIndex { $0.id == p.activeTabID } ?? 0 },
+            focused: panes.firstIndex { $0.id == focusedPaneID } ?? 0
+        )
+    }
+
+    func saveSession() {
+        if let data = try? JSONEncoder().encode(session) {
+            UserDefaults.standard.set(data, forKey: Self.sessionKey)
+        }
+    }
+
+    private static func restoredPanes(store: AppStore) -> (panes: [Pane], focused: Int)? {
+        guard let data = UserDefaults.standard.data(forKey: sessionKey),
+              let s = try? JSONDecoder().decode(Session.self, from: data) else { return nil }
+        let fm = FileManager.default
+        var panes: [Pane] = []
+        for (i, paths) in s.panes.enumerated() {
+            let existing = paths.filter { fm.fileExists(atPath: $0) }
+            guard let first = existing.first else { continue }
+            let pane = Pane(url: URL(fileURLWithPath: first), store: store)
+            for path in existing.dropFirst() { pane.openTab(URL(fileURLWithPath: path), store: store) }
+            let active = i < s.activeTabs.count ? s.activeTabs[i] : 0
+            if pane.tabs.indices.contains(active) { pane.activeTabID = pane.tabs[active].id }
+            panes.append(pane)
+        }
+        return panes.isEmpty ? nil : (panes, s.focused)
     }
 
     var focusedPane: Pane { panes.first { $0.id == focusedPaneID } ?? panes[0] }

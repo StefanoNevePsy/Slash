@@ -10,13 +10,17 @@ struct ContentView: View {
             SidebarView(workspace: workspace)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } detail: {
-            HStack(spacing: 0) {
-                ForEach(Array(workspace.panes.enumerated()), id: \.element.id) { index, pane in
-                    if index > 0 { Divider() }
-                    PaneView(workspace: workspace, pane: pane)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(Array(workspace.panes.enumerated()), id: \.element.id) { index, pane in
+                        if index > 0 { Divider() }
+                        PaneView(workspace: workspace, pane: pane)
+                    }
                 }
+                TransferBar()
             }
         }
+        .onChange(of: workspace.session) { workspace.saveSession() }
         .toolbar {
             ToolbarItemGroup {
                 Button { workspace.split() } label: { Label("Split", systemImage: "rectangle.split.2x1") }
@@ -224,5 +228,26 @@ struct PromptSheet: View {
 
     private func run() {
         if submit(text) { dismiss() } else { failed = true }
+    }
+}
+
+/// Progress of a running copy / move (bottom of the window).
+struct TransferBar: View {
+    private var transfer: FileTransfer { FileTransfer.shared }
+
+    var body: some View {
+        if transfer.isRunning {
+            VStack(spacing: 0) {
+                Divider()
+                HStack(spacing: 10) {
+                    Text("\(transfer.title) “\(transfer.currentName)”…").lineLimit(1).font(.callout)
+                    ProgressView(value: transfer.fraction).frame(maxWidth: 260)
+                    Text("\(Int(transfer.fraction * 100))%").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    Button("Stop") { transfer.cancel() }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+        }
     }
 }
