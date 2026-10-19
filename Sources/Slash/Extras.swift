@@ -576,3 +576,69 @@ enum Locations {
         (try? volume.resourceValues(forKeys: [.volumeNameKey]))?.volumeName ?? volume.lastPathComponent
     }
 }
+
+// MARK: - Quick Actions / Services and Clementine
+
+enum SystemServices {
+    /// Quick Actions made with Automator or Shortcuts (~/Library/Services and /Library/Services).
+    static func quickActions() -> [String] {
+        let dirs = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Services"),
+                    URL(fileURLWithPath: "/Library/Services")]
+        var names: [String] = []
+        for dir in dirs {
+            let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            for wf in items where wf.pathExtension == "workflow" {
+                let plist = wf.appendingPathComponent("Contents/Info.plist")
+                guard let dict = NSDictionary(contentsOf: plist) as? [String: Any],
+                      let services = dict["NSServices"] as? [[String: Any]],
+                      let menu = services.first?["NSMenuItem"] as? [String: Any],
+                      let name = menu["default"] as? String else { continue }
+                names.append(name)
+            }
+        }
+        return names.sorted()
+    }
+
+    /// Runs a Service / Quick Action on files, exactly as Finder's right-click menu would.
+    static func run(_ name: String, on urls: [URL]) {
+        let pb = NSPasteboard(name: NSPasteboard.Name("SlashService"))
+        let filenames = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+        pb.declareTypes([filenames, .fileURL, .string], owner: nil)
+        pb.setPropertyList(urls.map(\.path), forType: filenames)
+        if let first = urls.first {
+            pb.setString(first.absoluteString, forType: .fileURL)
+            pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
+        }
+        if !NSPerformService(name, pb) { NSSound.beep() }
+    }
+}
+
+enum Clementine {
+    static var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.stefanoneve.clementine") }
+
+    /// Opens Clementine's wheel for these files, under the mouse pointer.
+    static func open(_ urls: [URL]) {
+        guard let app = appURL else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = false
+        NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: config)
+    }
+}
+
+struct ServicesMenu: View {
+    let urls: [URL]
+
+    var body: some View {
+        if Clementine.appURL != nil {
+            Button("Clementine…") { Clementine.open(urls) }
+        }
+        let actions = SystemServices.quickActions()
+        if !actions.isEmpty {
+            Menu("Quick Actions") {
+                ForEach(actions, id: \.self) { name in
+                    Button(name) { SystemServices.run(name, on: urls) }
+                }
+            }
+        }
+    }
+}

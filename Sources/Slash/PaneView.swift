@@ -378,6 +378,7 @@ struct PaneView: View {
             Button("Quick Look") { QuickLook.show(urls[0]) }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting(urls) }
             ShareMenu(urls: urls)
+            ServicesMenu(urls: urls)
             Button("Compress") { Archive.compress(urls) }
             if urls.count == 1 {
                 Button("Remind Me…") { reminderTarget = IdentifiedURL(url: urls[0]) }
