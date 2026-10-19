@@ -642,3 +642,93 @@ struct ServicesMenu: View {
         }
     }
 }
+
+// MARK: - Google Drive (and other cloud folders)
+
+enum GoogleDrive {
+    static func isDrive(_ url: URL) -> Bool {
+        let p = url.path
+        return p.contains("/Library/CloudStorage/GoogleDrive") || p.hasPrefix("/Volumes/GoogleDrive")
+    }
+
+    /// "Free Up Space": keeps the item in Drive but removes the local copy.
+    static func freeUpSpace(_ urls: [URL]) {
+        var failed = 0
+        for url in urls {
+            do { try FileManager.default.evictUbiquitousItem(at: url) } catch { failed += 1 }
+        }
+        if failed > 0 { info("\(failed) item(s) couldn't be removed from this Mac", "They may be open in another app or not yet uploaded.") }
+    }
+
+    /// "Available offline": downloads the item (and everything inside a folder) to this Mac.
+    static func keepOffline(_ urls: [URL]) {
+        Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            for url in urls {
+                try? fm.startDownloadingUbiquitousItem(at: url)
+                if let e = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
+                    for case let child as URL in e { try? fm.startDownloadingUbiquitousItem(at: child) }
+                }
+            }
+        }
+    }
+
+    /// Google Drive for desktop stores each item's Drive ID in an extended attribute.
+    static func driveID(_ url: URL) -> String? {
+        for name in ["com.google.drivefs.item-id#S", "com.google.drivefs.item-id"] {
+            let size = getxattr(url.path, name, nil, 0, 0, 0)
+            guard size > 0 else { continue }
+            var data = [UInt8](repeating: 0, count: size)
+            guard getxattr(url.path, name, &data, size, 0, 0) == size else { continue }
+            let id = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+            if !id.isEmpty { return id }
+        }
+        return nil
+    }
+
+    static func webURL(_ url: URL) -> URL? {
+        guard let id = driveID(url) else { return nil }
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        return URL(string: isDir ? "https://drive.google.com/drive/folders/\(id)" : "https://drive.google.com/file/d/\(id)/view")
+    }
+
+    /// Opens the item on drive.google.com, where the Share button is.
+    static func share(_ url: URL) {
+        if let web = webURL(url) {
+            NSWorkspace.shared.open(web)
+        } else {
+            let q = url.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            if let search = URL(string: "https://drive.google.com/drive/search?q=\(q)") { NSWorkspace.shared.open(search) }
+        }
+    }
+
+    static func copyLink(_ url: URL) {
+        guard let web = webURL(url) else { NSSound.beep(); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(web.absoluteString, forType: .string)
+    }
+
+    private static func info(_ title: String, _ text: String) {
+        let a = NSAlert(); a.messageText = title; a.informativeText = text; a.runModal()
+    }
+}
+
+struct CloudMenu: View {
+    let urls: [URL]
+
+    var body: some View {
+        if let first = urls.first, GoogleDrive.isDrive(first) {
+            Menu("Google Drive") {
+                Button("Share…") { GoogleDrive.share(first) }
+                Button("Copy Link") { GoogleDrive.copyLink(first) }
+                Divider()
+                Button("Available Offline") { GoogleDrive.keepOffline(urls) }
+                Button("Free Up Space") { GoogleDrive.freeUpSpace(urls) }
+            }
+        } else if let first = urls.first, (try? first.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true {
+            // iCloud Drive and other cloud folders
+            Button("Download Now") { GoogleDrive.keepOffline(urls) }
+            Button("Remove Download") { GoogleDrive.freeUpSpace(urls) }
+        }
+    }
+}

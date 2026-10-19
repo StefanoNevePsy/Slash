@@ -16,6 +16,8 @@ struct FileItem: Identifiable, Hashable {
     let kind: String
     /// Finder tags
     let tags: [String]
+    /// In a cloud folder (Google Drive, iCloud) and not downloaded to this Mac
+    let isCloudOnly: Bool
 
     var id: URL { url }
     var name: String { url.lastPathComponent }
@@ -23,7 +25,8 @@ struct FileItem: Identifiable, Hashable {
 
     static let resourceKeys: [URLResourceKey] = [
         .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey,
-        .addedToDirectoryDateKey, .isHiddenKey, .isPackageKey, .localizedTypeDescriptionKey, .tagNamesKey
+        .addedToDirectoryDateKey, .isHiddenKey, .isPackageKey, .localizedTypeDescriptionKey, .tagNamesKey,
+        .ubiquitousItemDownloadingStatusKey
     ]
 
     static func load(_ url: URL) -> FileItem {
@@ -38,7 +41,8 @@ struct FileItem: Identifiable, Hashable {
             added: v?.addedToDirectoryDate,
             isHidden: v?.isHidden ?? url.lastPathComponent.hasPrefix("."),
             kind: v?.localizedTypeDescription ?? (isDir ? "Folder" : "Document"),
-            tags: v?.tagNames ?? []
+            tags: v?.tagNames ?? [],
+            isCloudOnly: v?.ubiquitousItemDownloadingStatus == .notDownloaded
         )
     }
 

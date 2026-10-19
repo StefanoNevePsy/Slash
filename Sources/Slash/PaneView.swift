@@ -379,6 +379,7 @@ struct PaneView: View {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting(urls) }
             ShareMenu(urls: urls)
             ServicesMenu(urls: urls)
+            CloudMenu(urls: urls)
             Button("Compress") { Archive.compress(urls) }
             if urls.count == 1 {
                 Button("Remind Me…") { reminderTarget = IdentifiedURL(url: urls[0]) }
@@ -536,6 +537,9 @@ struct FileRow: View {
             }
             ForEach(item.tags, id: \.self) { tag in
                 Circle().fill(FinderTagColor.color(for: tag)).frame(width: 8, height: 8).help(tag)
+            }
+            if item.isCloudOnly {
+                Image(systemName: "icloud").font(.caption).foregroundStyle(.secondary).help("Only in the cloud")
             }
             ForEach(store.state.properties) { prop in
                 if let opt = store.option(for: item.path, property: prop) {
