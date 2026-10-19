@@ -61,6 +61,31 @@ sections = [
         'Tasto destro → <b>Status</b> (o altre proprietà) per etichettare i file (es. "Da revisionare / Inviato"). Le proprietà seguono il file se lo sposti o rinomini in Slash.',
         'Tasto destro → <b>Set Nickname…</b> per un nome leggibile senza rinominare davvero il file.',
         'Immagini: tasto destro → <b>Image</b> → capovolgi, ruota, converti in PNG/JPEG.']),
+    ('9. Sicurezza: Annulla, copie, ricerca', [
+        '<b>⌘Z</b> annulla l\'ultima operazione sui file (spostamento, copia, cestino, rinomina, nuova cartella…).',
+        'Copie e spostamenti lunghi mostrano una barra di avanzamento in basso, con <b>Stop</b>. Se un file esiste già scegli '
+        '<b>Mantieni entrambi / Sostituisci / Salta</b>, anche "per tutti".',
+        'Alla riapertura Slash ritrova pannelli e tab come li avevi lasciati.',
+        '<b>⌘F</b> → "Subfolders &amp; contents" cerca anche <b>dentro</b> PDF e documenti (Spotlight).']),
+    ('10. Ordine: modelli, rinomina, cartelle intelligenti', [
+        '<b>Modelli di cartelle</b>: menu ⋯ o File → <b>New Folder from Template</b> (es. "Nuovo caso" con Anamnesi, Test, Relazioni…). '
+        'Si modificano in <b>Impostazioni → Templates</b>.',
+        '<b>Rinomina multipla</b>: seleziona più file → tasto destro → <b>Rename N Items…</b>. Schema con {date}, {name}, {n}, {today}, {folder}, '
+        'oppure Trova/Sostituisci, con anteprima.',
+        '<b>Cartelle intelligenti</b>: <b>+</b> accanto a "Smart Folders" nella barra laterale (es. tutti i file con Status = Da revisionare).',
+        '<b>Overview</b> (icona casa in alto): pagina dello Space con cartelle, link, note e impostazione privacy.',
+        '<b>Elementi collegati</b>: menu ⋯ → <b>Related</b> per collegare cartelle (es. Drive ↔ locale) e link web.']),
+    ('11. Strumenti in più', [
+        '<b>⌘4</b> Galleria, <b>⇧⌘P</b> pannello anteprima (nei PDF puoi cercare nel testo).',
+        'Tasto destro: <b>Open With</b>, <b>Share</b> (AirDrop, Mail, Messaggi), <b>Compress</b>, <b>PDF</b> → unisci / dividi in pagine, '
+        '<b>Image</b> → Create PDF, <b>Delete Immediately</b>.',
+        '<b>Promemoria</b>: tasto destro → <b>Remind Me…</b>; arriva una notifica e il file compare in "Reminders" nella barra laterale.',
+        '<b>Note di cartella</b>: icona nota nella barra del percorso.',
+        '<b>Download</b>: gli ultimi file scaricati sono nella barra laterale; in <b>Impostazioni → Downloads</b> crei regole '
+        '(es. PDF con "relazione" nel nome → cartella Relazioni) che spostano i file automaticamente.',
+        '<b>Space privato</b>: in Overview attiva "Private Space": si apre con Touch ID, non compare nelle condivisioni schermo '
+        'e si richiude quando il Mac va in stop.',
+        '<b>Sincronizzazione</b> tra Mac: Impostazioni → General → Sync (via iCloud Drive).']),
 ]
 for title, items in sections:
     story.append(Paragraph(title, H2))
@@ -78,7 +103,9 @@ rows = [['Tasti', 'Azione', 'Tasti', 'Azione'],
         ['⌘T / ⌘W', 'Nuovo / chiudi tab', '⇧⌘N', 'Nuova cartella'],
         ['⌘[  ⌘]  ⌘↑', 'Indietro / avanti / su', '⌘F', 'Cerca'],
         ['⇧⌘G', 'Vai alla cartella', '⌥⌘K', 'Command Palette'],
-        ['⌘K', 'Connetti al server', 'Spazio', 'Quick Look']]
+        ['⌘K', 'Connetti al server', 'Spazio', 'Quick Look'],
+        ['⌘4', 'Galleria', '⇧⌘P', 'Pannello anteprima'],
+        ['⌘Z', 'Annulla', 'Invio', 'Rinomina']]
 tb = Table(rows, colWidths=[2.8 * cm, 5.2 * cm, 2.8 * cm, 5.2 * cm])
 tb.setStyle(TableStyle([('FONTNAME', (0, 0), (-1, -1), 'DV'), ('FONTNAME', (0, 0), (-1, 0), 'DVB'),
                         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2D6FEB')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
