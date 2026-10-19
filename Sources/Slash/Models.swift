@@ -1,4 +1,5 @@
 import Foundation
+import CoreServices
 import SwiftUI
 
 // MARK: - File system
@@ -8,23 +9,43 @@ struct FileItem: Identifiable, Hashable {
     let isDirectory: Bool
     let size: Int64?
     let modified: Date?
+    let created: Date?
+    let added: Date?
     let isHidden: Bool
+    /// Localized kind, as shown by Finder ("PDF document", "Folder"...)
+    let kind: String
+    /// Finder tags
+    let tags: [String]
 
     var id: URL { url }
     var name: String { url.lastPathComponent }
     var path: String { url.path }
 
+    static let resourceKeys: [URLResourceKey] = [
+        .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey,
+        .addedToDirectoryDateKey, .isHiddenKey, .isPackageKey, .localizedTypeDescriptionKey, .tagNamesKey
+    ]
+
     static func load(_ url: URL) -> FileItem {
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isHiddenKey, .isPackageKey]
-        let v = try? url.resourceValues(forKeys: keys)
+        let v = try? url.resourceValues(forKeys: Set(resourceKeys))
         let isDir = (v?.isDirectory ?? false) && !(v?.isPackage ?? false)
         return FileItem(
             url: url,
             isDirectory: isDir,
             size: v?.fileSize.map(Int64.init),
             modified: v?.contentModificationDate,
-            isHidden: v?.isHidden ?? url.lastPathComponent.hasPrefix(".")
+            created: v?.creationDate,
+            added: v?.addedToDirectoryDate,
+            isHidden: v?.isHidden ?? url.lastPathComponent.hasPrefix("."),
+            kind: v?.localizedTypeDescription ?? (isDir ? "Folder" : "Document"),
+            tags: v?.tagNames ?? []
         )
+    }
+
+    /// "Date Last Opened" as Finder shows it (from Spotlight metadata).
+    static func lastOpened(_ url: URL) -> Date? {
+        guard let item = MDItemCreateWithURL(nil, url as CFURL) else { return nil }
+        return MDItemCopyAttribute(item, kMDItemLastUsedDate) as? Date
     }
 }
 
@@ -78,15 +99,46 @@ struct PropertyDefinition: Identifiable, Codable, Hashable {
 
 // MARK: - Folder views (sort / group / filter per folder)
 
+/// Same criteria as Finder's View ▸ Sort By.
 enum SortKey: String, Codable, CaseIterable, Identifiable {
-    case name, modified, size, kind
+    case name, kind, lastOpened, added, modified, created, size, tags
     var id: String { rawValue }
     var label: String {
         switch self {
         case .name: "Name"
-        case .modified: "Date Modified"
-        case .size: "Size"
         case .kind: "Kind"
+        case .lastOpened: "Date Last Opened"
+        case .added: "Date Added"
+        case .modified: "Date Modified"
+        case .created: "Date Created"
+        case .size: "Size"
+        case .tags: "Tags"
+        }
+    }
+}
+
+/// Same criteria as Finder's View ▸ Use Groups / Group By.
+enum GroupKey: String, Codable, CaseIterable, Identifiable {
+    case kind, lastOpened, added, modified, created, size, tags
+    var id: String { rawValue }
+    var label: String { SortKey(rawValue: rawValue)?.label ?? rawValue }
+}
+
+enum ViewMode: String, Codable, CaseIterable, Identifiable {
+    case icons, list, columns
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .icons: "Icons"
+        case .list: "List"
+        case .columns: "Columns"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .icons: "square.grid.2x2"
+        case .list: "list.bullet"
+        case .columns: "rectangle.split.3x1"
         }
     }
 }
@@ -100,6 +152,10 @@ struct FolderView: Identifiable, Codable, Hashable {
     var showHidden = false
     /// Group rows by the option chosen for this property
     var groupByPropertyID: String?
+    /// Group rows by a Finder criterion (takes precedence over groupByPropertyID). Optional for old state files.
+    var groupKey: GroupKey?
+    /// Icons / List / Columns. Optional for old state files (nil = list).
+    var mode: ViewMode?
     /// propertyID -> optionID. Only items matching all filters are shown.
     var filters: [String: String] = [:]
 }

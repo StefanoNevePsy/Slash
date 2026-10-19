@@ -76,7 +76,7 @@ final class FolderTab: Identifiable {
         do {
             let urls = try FileManager.default.contentsOfDirectory(
                 at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isHiddenKey, .isPackageKey],
+                includingPropertiesForKeys: FileItem.resourceKeys,
                 options: []
             )
             items = urls.map(FileItem.load)
@@ -99,6 +99,15 @@ final class Pane: Identifiable {
     var tabs: [FolderTab]
     var activeTabID: UUID
     var selection: Set<URL> = []
+    /// Item being renamed inline (Return key, like Finder)
+    var renaming: URL?
+    var showViewOptions = false
+    /// ⌘F search inside this pane
+    var searchText = ""
+    var searchActive = false
+    var searchSubfolders = false
+    /// Column view: folders selected to the right of the tab's folder
+    var columnPath: [URL] = []
 
     init(url: URL, store: AppStore?) {
         let t = FolderTab(url: url, store: store)
@@ -139,6 +148,8 @@ final class Workspace {
     var panes: [Pane]
     var focusedPaneID: UUID
     var showPalette = false
+    var showGoToFolder = false
+    var showConnectToServer = false
     @ObservationIgnored weak var store: AppStore?
 
     init(store: AppStore) {

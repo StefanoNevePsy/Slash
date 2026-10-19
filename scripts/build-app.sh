@@ -60,6 +60,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>Slash asks Finder to show the Get Info window for the selected items.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

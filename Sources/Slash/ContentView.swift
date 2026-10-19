@@ -20,14 +20,37 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button { workspace.split() } label: { Label("Split", systemImage: "rectangle.split.2x1") }
-                    .help("Split pane (⌘D)")
+                    .help("Split pane (⌘\\)")
                 Button { workspace.showPalette = true } label: { Label("Go to", systemImage: "magnifyingglass") }
-                    .help("Command palette (⌘K)")
+                    .help("Command palette (⌥⌘K)")
             }
         }
         .sheet(isPresented: Binding(get: { workspace.showPalette }, set: { workspace.showPalette = $0 })) {
             CommandPaletteView(workspace: workspace)
                 .environment(store)
+        }
+        .sheet(isPresented: Binding(get: { workspace.showGoToFolder }, set: { workspace.showGoToFolder = $0 })) {
+            PromptSheet(title: "Go to Folder", placeholder: "~/Documents or /Volumes/…", action: "Go") { text in
+                let path = (text.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { return false }
+                let url = URL(fileURLWithPath: path)
+                if isDir.boolValue {
+                    workspace.open(url)
+                } else {
+                    workspace.open(url.deletingLastPathComponent())
+                    workspace.focusedPane.selection = [url]
+                }
+                return true
+            }
+        }
+        .sheet(isPresented: Binding(get: { workspace.showConnectToServer }, set: { workspace.showConnectToServer = $0 })) {
+            PromptSheet(title: "Connect to Server", placeholder: "smb://server/share", action: "Connect") { text in
+                guard let url = URL(string: text.trimmingCharacters(in: .whitespaces)), url.scheme != nil else { return false }
+                // macOS mounts smb://, afp://, nfs://, ftp:// and WebDAV URLs and asks for credentials itself.
+                NSWorkspace.shared.open(url)
+                return true
+            }
         }
         .navigationTitle(store.currentSpace?.name ?? "Slash")
     }
@@ -164,5 +187,42 @@ enum LiveScanner {
             }
         }
         return Array(results.sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }.prefix(limit))
+    }
+}
+
+/// Small text-input sheet used by Go to Folder (⇧⌘G) and Connect to Server (⌘K).
+struct PromptSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let placeholder: String
+    let action: String
+    /// Returns false to keep the sheet open (e.g. path not found)
+    let submit: (String) -> Bool
+
+    @State private var text = ""
+    @State private var failed = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit(run)
+            if failed { Text("Not found").font(.caption).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(action, action: run).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { focused = true }
+    }
+
+    private func run() {
+        if submit(text) { dismiss() } else { failed = true }
     }
 }
