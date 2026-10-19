@@ -153,6 +153,8 @@ final class Workspace {
     var pendingTemplate: FolderTemplate?
     var showBatchRename = false
     var showOverview = false
+    /// ⇧⌘P preview panel on the right of each pane
+    var showPreview = false
     @ObservationIgnored weak var store: AppStore?
 
     init(store: AppStore) {
@@ -187,6 +189,19 @@ final class Workspace {
         )
     }
 
+    /// Leaves folders of private Spaces (used when a private Space locks).
+    func closePrivateTabs() {
+        guard let store else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for pane in panes {
+            for tab in pane.tabs where PrivacyGuard.isInsidePrivate(tab.url.path, store: store) {
+                tab.navigate(to: home)
+            }
+            pane.columnPath = []
+            pane.selection = []
+        }
+    }
+
     func saveSession() {
         if let data = try? JSONEncoder().encode(session) {
             UserDefaults.standard.set(data, forKey: Self.sessionKey)
@@ -199,7 +214,8 @@ final class Workspace {
         let fm = FileManager.default
         var panes: [Pane] = []
         for (i, paths) in s.panes.enumerated() {
-            let existing = paths.filter { fm.fileExists(atPath: $0) }
+            // Never reopen folders of a private Space without Touch ID.
+            let existing = paths.filter { fm.fileExists(atPath: $0) && !PrivacyGuard.isInsidePrivate($0, store: store) }
             guard let first = existing.first else { continue }
             let pane = Pane(url: URL(fileURLWithPath: first), store: store)
             for path in existing.dropFirst() { pane.openTab(URL(fileURLWithPath: path), store: store) }

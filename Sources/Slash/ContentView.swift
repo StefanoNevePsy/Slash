@@ -81,6 +81,13 @@ struct SidebarView: View {
     @State private var liveItems: [FileItem] = []
     @State private var iconTarget: IdentifiedURL?
     @State private var editingSmart: SmartFolder?
+    @State private var downloads: [FileItem] = []
+
+    /// Due or within the next 7 days.
+    private var upcomingReminders: [FileReminder] {
+        let limit = Date().addingTimeInterval(7 * 86400)
+        return store.reminders.filter { $0.date <= limit }.sorted { $0.date < $1.date }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,6 +141,50 @@ struct SidebarView: View {
                             .help("New smart folder")
                     }
                 }
+                Section("Downloads") {
+                    ForEach(downloads) { item in
+                        SidebarItemButton(item: item, workspace: workspace)
+                    }
+                }
+                if !upcomingReminders.isEmpty {
+                    Section("Reminders") {
+                        ForEach(upcomingReminders) { r in
+                            let url = URL(fileURLWithPath: r.path)
+                            Button {
+                                NotificationCenter.default.post(name: ReminderCenter.openPathNotification, object: r.path)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Label(store.displayName(for: url), systemImage: r.date <= Date() ? "bell.badge.fill" : "bell")
+                                        .foregroundStyle(r.date <= Date() ? Color.red : Color.primary)
+                                    Text(r.note.isEmpty ? r.date.formatted(date: .abbreviated, time: .shortened) : r.note)
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Done") {
+                                    ReminderCenter.cancel(r)
+                                    store.reminders.removeAll { $0.id == r.id }
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("Locations") {
+                    ForEach(Locations.volumes(), id: \.self) { vol in
+                        Button { workspace.open(vol) } label: {
+                            Label(Locations.name(of: vol), systemImage: vol.path == "/" ? "internaldrive" : "externaldrive")
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            if vol.path != "/" {
+                                Button("Eject") { try? NSWorkspace.shared.unmountAndEjectDevice(at: vol) }
+                            }
+                        }
+                    }
+                    Button { workspace.open(Locations.trash) } label: { Label("Trash", systemImage: "trash") }
+                        .buttonStyle(.plain)
+                }
                 Section("Recent folders") {
                     ForEach(store.state.recentFolders.prefix(6), id: \.self) { path in
                         Button { workspace.open(URL(fileURLWithPath: path)) } label: {
@@ -154,6 +205,12 @@ struct SidebarView: View {
             .listStyle(.sidebar)
         }
         .task(id: store.currentSpace?.pinnedPaths) { await refreshLive() }
+        .task {
+            while !Task.isCancelled {
+                downloads = await Task.detached { DownloadSorter.recent() }.value
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
         .sheet(item: $iconTarget) { target in
             IconPickerView(path: target.url.path).environment(store)
         }
@@ -174,7 +231,11 @@ struct SidebarView: View {
         HStack {
             Menu {
                 ForEach(store.state.spaces) { space in
-                    Button(space.name) { store.state.selectedSpaceID = space.id }
+                    Button {
+                        select(space)
+                    } label: {
+                        if space.isPrivate == true { Label(space.name, systemImage: "lock.fill") } else { Text(space.name) }
+                    }
                 }
                 Divider()
                 Button("New Space…") { addingSpace = true }
@@ -186,6 +247,19 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private func select(_ space: Space) {
+        guard space.isPrivate == true else {
+            if store.currentSpace?.isPrivate == true { workspace.closePrivateTabs() }
+            store.state.selectedSpaceID = space.id
+            return
+        }
+        Task {
+            if await PrivacyGuard.unlock(reason: "open the private Space “\(space.name)”") {
+                store.state.selectedSpaceID = space.id
+            }
+        }
     }
 
     /// "Live Group": files modified in the last 7 days inside the space's pinned folders, refreshed every minute.

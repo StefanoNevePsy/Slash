@@ -320,6 +320,18 @@ struct SpaceOverview: View {
                         }
                     }
 
+                    section("Privacy") {
+                        Toggle("Private Space: unlock with Touch ID and hide from screen sharing", isOn: Binding(
+                            get: { store.currentSpace?.isPrivate == true },
+                            set: { v in
+                                store.updateCurrentSpace { $0.isPrivate = v ? true : nil }
+                                PrivacyGuard.applyWindowSharing(isPrivate: v)
+                            }
+                        ))
+                        Text("Its folders are closed when the Mac locks or sleeps, and are not reopened at launch.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
                     section("Notes") {
                         TextEditor(text: Binding(
                             get: { store.currentSpace?.notes ?? "" },

@@ -11,6 +11,8 @@ struct PaneView: View {
     @State private var iconTarget: IdentifiedURL?
     @State private var subfolderResults: [FileItem] = []
     @State private var addingWebLink = false
+    @State private var showNote = false
+    @State private var reminderTarget: IdentifiedURL?
 
     private var tab: FolderTab { pane.activeTab }
     private var isFocused: Bool { workspace.focusedPaneID == pane.id }
@@ -22,12 +24,21 @@ struct PaneView: View {
         VStack(spacing: 0) {
             TabStrip(workspace: workspace, pane: pane)
             pathBar
+            if showNote { FolderNoteBar(path: folderPath) }
             if pane.searchActive { searchBar }
             Divider()
-            switch mode {
-            case .list: listView
-            case .icons: iconView
-            case .columns: ColumnBrowser(workspace: workspace, pane: pane, menu: { AnyView(menuItems(for: $0)) })
+            HStack(spacing: 0) {
+                switch mode {
+                case .list: listView
+                case .icons: iconView
+                case .columns: ColumnBrowser(workspace: workspace, pane: pane, menu: { AnyView(menuItems(for: $0)) })
+                case .gallery: GalleryView(items: groups.flatMap(\.items), pane: pane, open: open, menu: { AnyView(menuItems(for: $0)) })
+                }
+                if workspace.showPreview {
+                    Divider()
+                    PreviewPanel(url: pane.selection.count == 1 ? pane.selection.first : nil)
+                        .frame(width: 300)
+                }
             }
         }
         .overlay(alignment: .top) {
@@ -53,6 +64,9 @@ struct PaneView: View {
         }
         .sheet(item: $iconTarget) { target in
             IconPickerView(path: target.url.path).environment(store)
+        }
+        .sheet(item: $reminderTarget) { target in
+            ReminderSheet(url: target.url).environment(store)
         }
         .sheet(isPresented: $addingWebLink) {
             PromptSheet(title: "Add Web Link", placeholder: "https://…", action: "Add") { text in
@@ -100,6 +114,11 @@ struct PaneView: View {
                 .help("View options (⌘J)")
             Button { pane.searchActive.toggle() } label: { Image(systemName: "magnifyingglass") }
                 .help("Search (⌘F)")
+            Button { showNote.toggle() } label: {
+                Image(systemName: store.note(for: folderPath).isEmpty ? "note.text" : "note.text.badge.plus")
+                    .foregroundStyle(store.note(for: folderPath).isEmpty ? Color.primary : Color.orange)
+            }
+            .help("Folder note")
             Menu {
                 Button("Pin to Sidebar") { store.pin(folderPath) }
                 Menu("New Folder from Template") {
@@ -355,8 +374,14 @@ struct PaneView: View {
                 Button("Pin to Sidebar") { store.pin(urls[0].path) }
                 Button("Set Icon…") { iconTarget = IdentifiedURL(url: urls[0]) }
             }
+            OpenWithMenu(urls: urls)
             Button("Quick Look") { QuickLook.show(urls[0]) }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+            ShareMenu(urls: urls)
+            Button("Compress") { Archive.compress(urls) }
+            if urls.count == 1 {
+                Button("Remind Me…") { reminderTarget = IdentifiedURL(url: urls[0]) }
+            }
             Divider()
             Button("Get Info") { focus(); pane.selection = Set(urls); workspace.getInfo() }
             if urls.count == 1 {
@@ -389,6 +414,16 @@ struct PaneView: View {
                     Divider()
                     Button("Convert to PNG") { urls.filter(ImageOps.isImage).forEach { ImageOps.convert($0, to: .png) } }
                     Button("Convert to JPEG") { urls.filter(ImageOps.isImage).forEach { ImageOps.convert($0, to: .jpeg) } }
+                    Divider()
+                    Button("Create PDF") { PDFTools.fromImages(urls.filter(ImageOps.isImage)) }
+                }
+            }
+            if urls.contains(where: PDFTools.isPDF) {
+                Menu("PDF") {
+                    if urls.filter(PDFTools.isPDF).count > 1 {
+                        Button("Combine into One PDF") { PDFTools.combine(urls.filter(PDFTools.isPDF)) }
+                    }
+                    Button("Split into Pages") { urls.filter(PDFTools.isPDF).forEach(PDFTools.split) }
                 }
             }
             Divider()
@@ -399,6 +434,7 @@ struct PaneView: View {
             Button("Move to Trash", role: .destructive) {
                 focus(); pane.selection = Set(urls); workspace.trashSelection()
             }
+            Button("Delete Immediately…", role: .destructive) { Deletion.deleteImmediately(urls) }
         }
     }
 

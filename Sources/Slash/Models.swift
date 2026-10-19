@@ -128,13 +128,14 @@ enum GroupKey: String, Codable, CaseIterable, Identifiable {
 }
 
 enum ViewMode: String, Codable, CaseIterable, Identifiable {
-    case icons, list, columns
+    case icons, list, columns, gallery
     var id: String { rawValue }
     var label: String {
         switch self {
         case .icons: "Icons"
         case .list: "List"
         case .columns: "Columns"
+        case .gallery: "Gallery"
         }
     }
     var symbol: String {
@@ -142,6 +143,7 @@ enum ViewMode: String, Codable, CaseIterable, Identifiable {
         case .icons: "square.grid.2x2"
         case .list: "list.bullet"
         case .columns: "rectangle.split.3x1"
+        case .gallery: "photo.on.rectangle"
         }
     }
 }

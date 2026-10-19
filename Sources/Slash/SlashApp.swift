@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when launched from `swift run` (no bundle): show in Dock and take focus.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        ReminderCenter.setUp()
         Updater.shared.checkInBackground()
     }
 
@@ -55,7 +56,36 @@ struct WindowRoot: View {
                 Color.clear
             }
         }
-        .onAppear { if workspace == nil { workspace = Workspace(store: store) } }
+        .onAppear {
+            if store.currentSpace?.isPrivate == true {
+                // Never start inside a private Space.
+                store.state.selectedSpaceID = store.state.spaces.first { $0.isPrivate != true }?.id
+            }
+            if workspace == nil { workspace = Workspace(store: store) }
+            DownloadSorter.shared.start(store: store)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ReminderCenter.openPathNotification)) { note in
+            guard let path = note.object as? String, let workspace else { return }
+            let url = URL(fileURLWithPath: path)
+            if FileItem.load(url).isDirectory {
+                workspace.open(url)
+            } else {
+                workspace.open(url.deletingLastPathComponent())
+                workspace.focusedPane.selection = [url]
+            }
+        }
+        // Lock private Spaces when the screen locks or the Mac sleeps.
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in lockPrivate() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.sessionDidResignActiveNotification)) { _ in lockPrivate() }
+        .onChange(of: store.currentSpace?.id) {
+            PrivacyGuard.applyWindowSharing(isPrivate: store.currentSpace?.isPrivate == true)
+        }
+    }
+
+    private func lockPrivate() {
+        guard store.currentSpace?.isPrivate == true else { return }
+        store.state.selectedSpaceID = store.state.spaces.first { $0.isPrivate != true }?.id
+        workspace?.closePrivateTabs()
     }
 }
 
@@ -160,6 +190,10 @@ struct SlashCommands: Commands {
                 .keyboardShortcut("2")
             Button("as Columns") { workspace?.setViewMode(.columns) }
                 .keyboardShortcut("3")
+            Button("as Gallery") { workspace?.setViewMode(.gallery) }
+                .keyboardShortcut("4")
+            Button("Show/Hide Preview") { workspace?.showPreview.toggle() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             Divider()
             Button("Use Groups") { workspace?.toggleGroups() }
                 .keyboardShortcut("0", modifiers: [.command, .control])
@@ -253,6 +287,9 @@ struct SettingsView: View {
 
             TemplatesSettings()
                 .tabItem { Label("Templates", systemImage: "folder.badge.plus") }
+
+            DownloadRulesSettings()
+                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
         }
         .frame(width: 560, height: 360)
     }
