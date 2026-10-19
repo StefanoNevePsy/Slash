@@ -253,7 +253,7 @@ struct PaneView: View {
 
     private func openInTerminal(_ url: URL) {
         guard let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
-        NSWorkspace.shared.open([url], withApplicationAt: term, configuration: .init())
+        NSWorkspace.shared.open([url], withApplicationAt: term, configuration: NSWorkspace.OpenConfiguration())
     }
 }
 
