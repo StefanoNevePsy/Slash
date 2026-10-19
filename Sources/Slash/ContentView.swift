@@ -1,0 +1,151 @@
+import SwiftUI
+import AppKit
+
+struct ContentView: View {
+    @Environment(AppStore.self) private var store
+    let workspace: Workspace
+
+    var body: some View {
+        NavigationSplitView {
+            SidebarView(workspace: workspace)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        } detail: {
+            HStack(spacing: 0) {
+                ForEach(Array(workspace.panes.enumerated()), id: \.element.id) { index, pane in
+                    if index > 0 { Divider() }
+                    PaneView(workspace: workspace, pane: pane)
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup {
+                Button { workspace.split() } label: { Label("Split", systemImage: "rectangle.split.2x1") }
+                    .help("Split pane (⌘D)")
+                Button { workspace.showPalette = true } label: { Label("Go to", systemImage: "magnifyingglass") }
+                    .help("Command palette (⌘K)")
+            }
+        }
+        .sheet(isPresented: Binding(get: { workspace.showPalette }, set: { workspace.showPalette = $0 })) {
+            CommandPaletteView(workspace: workspace)
+                .environment(store)
+        }
+        .navigationTitle(store.currentSpace?.name ?? "Slash")
+    }
+}
+
+// MARK: - Sidebar
+
+struct SidebarView: View {
+    @Environment(AppStore.self) private var store
+    let workspace: Workspace
+    @State private var newSpaceName = ""
+    @State private var addingSpace = false
+    @State private var liveItems: [FileItem] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            spacePicker
+            List {
+                Section("Pinned") {
+                    ForEach(store.currentSpace?.pinnedPaths ?? [], id: \.self) { path in
+                        let url = URL(fileURLWithPath: path)
+                        Button { workspace.open(url) } label: {
+                            Label(store.displayName(for: url), systemImage: "folder")
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Open in New Tab") { workspace.open(url, newTab: true) }
+                            Button("Unpin") { store.unpin(path) }
+                        }
+                    }
+                    .onMove { from, to in store.updateCurrentSpace { $0.pinnedPaths.move(fromOffsets: from, toOffset: to) } }
+                    .dropDestination(for: URL.self) { urls, _ in
+                        urls.filter { FileItem.load($0).isDirectory }.forEach { store.pin($0.path) }
+                        return true
+                    }
+                }
+                Section("Live · Recent changes") {
+                    ForEach(liveItems) { item in
+                        Button {
+                            if item.isDirectory { workspace.open(item.url) } else { NSWorkspace.shared.open(item.url) }
+                        } label: {
+                            Label(store.displayName(for: item.url), systemImage: item.isDirectory ? "folder" : "doc")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .draggable(item.url)
+                    }
+                }
+                Section("Recent folders") {
+                    ForEach(store.state.recentFolders.prefix(6), id: \.self) { path in
+                        Button { workspace.open(URL(fileURLWithPath: path)) } label: {
+                            Label(store.displayName(for: URL(fileURLWithPath: path)), systemImage: "clock")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+        }
+        .task(id: store.currentSpace?.pinnedPaths) { await refreshLive() }
+        .alert("New Space", isPresented: $addingSpace) {
+            TextField("Name", text: $newSpaceName)
+            Button("Create") {
+                if !newSpaceName.isEmpty { store.addSpace(named: newSpaceName) }
+                newSpaceName = ""
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var spacePicker: some View {
+        HStack {
+            Menu {
+                ForEach(store.state.spaces) { space in
+                    Button(space.name) { store.state.selectedSpaceID = space.id }
+                }
+                Divider()
+                Button("New Space…") { addingSpace = true }
+            } label: {
+                Label(store.currentSpace?.name ?? "Space", systemImage: store.currentSpace?.symbol ?? "square.stack")
+            }
+            .menuStyle(.borderlessButton)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    /// "Live Group": files modified in the last 7 days inside the space's pinned folders, refreshed every minute.
+    private func refreshLive() async {
+        while !Task.isCancelled {
+            let roots = (store.currentSpace?.pinnedPaths ?? []).map { URL(fileURLWithPath: $0) }
+            let found = await Task.detached(priority: .utility) { LiveScanner.recent(in: roots) }.value
+            liveItems = found
+            try? await Task.sleep(for: .seconds(60))
+        }
+    }
+}
+
+enum LiveScanner {
+    static func recent(in roots: [URL], days: Double = 7, limit: Int = 12) -> [FileItem] {
+        let cutoff = Date().addingTimeInterval(-days * 86400)
+        var results: [FileItem] = []
+        for root in roots {
+            guard let e = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            var visited = 0
+            for case let url as URL in e {
+                visited += 1
+                if visited > 5000 { break }
+                if e.level > 3 { e.skipDescendants(); continue }
+                let item = FileItem.load(url)
+                if !item.isDirectory, let m = item.modified, m > cutoff { results.append(item) }
+            }
+        }
+        return Array(results.sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }.prefix(limit))
+    }
+}

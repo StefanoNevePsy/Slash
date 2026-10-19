@@ -1,0 +1,191 @@
+import Foundation
+import Observation
+
+/// Watches a single directory and calls back when its contents change.
+final class DirectoryWatcher {
+    private var source: DispatchSourceFileSystemObject?
+
+    init?(url: URL, onChange: @escaping () -> Void) {
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .rename, .delete, .attrib], queue: .main
+        )
+        src.setEventHandler(handler: onChange)
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        source = src
+    }
+
+    deinit { source?.cancel() }
+}
+
+/// One tab inside a pane, with its own back/forward history.
+@Observable
+final class FolderTab: Identifiable {
+    let id = UUID()
+    private(set) var url: URL
+    private(set) var items: [FileItem] = []
+    private(set) var error: String?
+    private var back: [URL] = []
+    private var forward: [URL] = []
+
+    @ObservationIgnored private var watcher: DirectoryWatcher?
+    @ObservationIgnored weak var store: AppStore?
+
+    init(url: URL, store: AppStore?) {
+        self.url = url
+        self.store = store
+        load()
+    }
+
+    var title: String { store?.displayName(for: url) ?? url.lastPathComponent }
+    var canGoBack: Bool { !back.isEmpty }
+    var canGoForward: Bool { !forward.isEmpty }
+
+    func navigate(to newURL: URL) {
+        guard newURL != url else { return }
+        back.append(url)
+        forward.removeAll()
+        url = newURL
+        load()
+    }
+
+    func goBack() {
+        guard let prev = back.popLast() else { return }
+        forward.append(url)
+        url = prev
+        load()
+    }
+
+    func goForward() {
+        guard let next = forward.popLast() else { return }
+        back.append(url)
+        url = next
+        load()
+    }
+
+    func goUp() {
+        let parent = url.deletingLastPathComponent()
+        if parent.path != url.path { navigate(to: parent) }
+    }
+
+    func reload() { load(rewatch: false) }
+
+    private func load(rewatch: Bool = true) {
+        do {
+            let urls = try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isHiddenKey, .isPackageKey],
+                options: []
+            )
+            items = urls.map(FileItem.load)
+            error = nil
+        } catch {
+            items = []
+            self.error = error.localizedDescription
+        }
+        if rewatch {
+            watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
+            store?.noteVisited(url.path)
+        }
+    }
+}
+
+/// A split pane: a strip of tabs, one of them active.
+@Observable
+final class Pane: Identifiable {
+    let id = UUID()
+    var tabs: [FolderTab]
+    var activeTabID: UUID
+    var selection: Set<URL> = []
+
+    init(url: URL, store: AppStore?) {
+        let t = FolderTab(url: url, store: store)
+        tabs = [t]
+        activeTabID = t.id
+    }
+
+    var activeTab: FolderTab { tabs.first { $0.id == activeTabID } ?? tabs[0] }
+
+    func openTab(_ url: URL, store: AppStore?) {
+        let t = FolderTab(url: url, store: store)
+        if let i = tabs.firstIndex(where: { $0.id == activeTabID }) {
+            tabs.insert(t, at: i + 1)
+        } else {
+            tabs.append(t)
+        }
+        activeTabID = t.id
+        selection = []
+    }
+
+    /// Returns false when this was the last tab (caller may close the pane).
+    @discardableResult
+    func closeTab(_ id: UUID) -> Bool {
+        guard tabs.count > 1, let i = tabs.firstIndex(where: { $0.id == id }) else { return false }
+        tabs.remove(at: i)
+        if activeTabID == id { activeTabID = tabs[min(i, tabs.count - 1)].id }
+        return true
+    }
+
+    func moveTab(from source: IndexSet, to destination: Int) {
+        tabs.move(fromOffsets: source, toOffset: destination)
+    }
+}
+
+/// Everything in one window: panes laid out side by side, plus which one has focus.
+@Observable
+final class Workspace {
+    var panes: [Pane]
+    var focusedPaneID: UUID
+    var showPalette = false
+    @ObservationIgnored weak var store: AppStore?
+
+    init(store: AppStore) {
+        self.store = store
+        let start = store.currentSpace?.pinnedPaths.first.map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let p = Pane(url: start, store: store)
+        panes = [p]
+        focusedPaneID = p.id
+    }
+
+    var focusedPane: Pane { panes.first { $0.id == focusedPaneID } ?? panes[0] }
+
+    func open(_ url: URL, newTab: Bool = false) {
+        if newTab {
+            focusedPane.openTab(url, store: store)
+        } else {
+            focusedPane.activeTab.navigate(to: url)
+            focusedPane.selection = []
+        }
+    }
+
+    func split() {
+        guard panes.count < 4 else { return }
+        let p = Pane(url: focusedPane.activeTab.url, store: store)
+        if let i = panes.firstIndex(where: { $0.id == focusedPaneID }) {
+            panes.insert(p, at: i + 1)
+        } else {
+            panes.append(p)
+        }
+        focusedPaneID = p.id
+    }
+
+    func closePane(_ id: UUID) {
+        guard panes.count > 1, let i = panes.firstIndex(where: { $0.id == id }) else { return }
+        panes.remove(at: i)
+        if focusedPaneID == id { focusedPaneID = panes[max(0, i - 1)].id }
+    }
+
+    func closeActiveTab() {
+        let pane = focusedPane
+        if !pane.closeTab(pane.activeTabID) { closePane(pane.id) }
+    }
+
+    /// The pane next to the focused one (used for "Open in other pane" / copy & move).
+    var otherPane: Pane? {
+        guard panes.count > 1, let i = panes.firstIndex(where: { $0.id == focusedPaneID }) else { return nil }
+        return panes[(i + 1) % panes.count]
+    }
+}

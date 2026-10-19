@@ -1,0 +1,138 @@
+import Foundation
+import SwiftUI
+
+// MARK: - File system
+
+struct FileItem: Identifiable, Hashable {
+    let url: URL
+    let isDirectory: Bool
+    let size: Int64?
+    let modified: Date?
+    let isHidden: Bool
+
+    var id: URL { url }
+    var name: String { url.lastPathComponent }
+    var path: String { url.path }
+
+    static func load(_ url: URL) -> FileItem {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isHiddenKey, .isPackageKey]
+        let v = try? url.resourceValues(forKeys: keys)
+        let isDir = (v?.isDirectory ?? false) && !(v?.isPackage ?? false)
+        return FileItem(
+            url: url,
+            isDirectory: isDir,
+            size: v?.fileSize.map(Int64.init),
+            modified: v?.contentModificationDate,
+            isHidden: v?.isHidden ?? url.lastPathComponent.hasPrefix(".")
+        )
+    }
+}
+
+// MARK: - Spaces & sidebar
+
+struct Space: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var name: String
+    var symbol: String = "square.stack"
+    var pinnedPaths: [String] = []
+    /// Space-wide links (shown in the Overview page)
+    var links: [String] = []
+}
+
+// MARK: - Properties (custom metadata)
+
+struct PropertyOption: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    var color: PropertyColor = .blue
+}
+
+enum PropertyColor: String, Codable, CaseIterable {
+    case gray, red, orange, yellow, green, teal, blue, purple, pink
+
+    var color: Color {
+        switch self {
+        case .gray: .gray
+        case .red: .red
+        case .orange: .orange
+        case .yellow: .yellow
+        case .green: .green
+        case .teal: .teal
+        case .blue: .blue
+        case .purple: .purple
+        case .pink: .pink
+        }
+    }
+}
+
+struct PropertyDefinition: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    var options: [PropertyOption] = []
+
+    func option(_ id: String?) -> PropertyOption? {
+        guard let id else { return nil }
+        return options.first { $0.id == id }
+    }
+}
+
+// MARK: - Folder views (sort / group / filter per folder)
+
+enum SortKey: String, Codable, CaseIterable, Identifiable {
+    case name, modified, size, kind
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .name: "Name"
+        case .modified: "Date Modified"
+        case .size: "Size"
+        case .kind: "Kind"
+        }
+    }
+}
+
+struct FolderView: Identifiable, Codable, Hashable {
+    var id = UUID().uuidString
+    var title: String = "Default"
+    var sortKey: SortKey = .name
+    var ascending = true
+    var foldersFirst = true
+    var showHidden = false
+    /// Group rows by the option chosen for this property
+    var groupByPropertyID: String?
+    /// propertyID -> optionID. Only items matching all filters are shown.
+    var filters: [String: String] = [:]
+}
+
+struct FolderViewSet: Codable, Hashable {
+    var views: [FolderView] = [FolderView()]
+    var activeID: String?
+
+    var active: FolderView {
+        get { views.first { $0.id == activeID } ?? views[0] }
+        set {
+            if let i = views.firstIndex(where: { $0.id == newValue.id }) { views[i] = newValue }
+        }
+    }
+}
+
+// MARK: - Related items
+
+struct FolderRelations: Codable, Hashable {
+    var relatedPaths: [String] = []
+    var urls: [String] = []
+}
+
+// MARK: - Persisted state
+
+struct PersistedState: Codable {
+    var spaces: [Space] = []
+    var selectedSpaceID: UUID?
+    var properties: [PropertyDefinition] = []
+    /// itemPath -> (propertyID -> optionID)
+    var selections: [String: [String: String]] = [:]
+    var nicknames: [String: String] = [:]
+    var folderViews: [String: FolderViewSet] = [:]
+    var relations: [String: FolderRelations] = [:]
+    var recentFolders: [String] = []
+}
