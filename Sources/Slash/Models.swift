@@ -116,6 +116,14 @@ struct FolderViewSet: Codable, Hashable {
     }
 }
 
+// MARK: - Custom folder icons
+
+/// An SF Symbol + color chosen for a folder. Stored in Slash, so it also works on Google Drive / iCloud folders.
+struct FolderIcon: Codable, Hashable {
+    var symbol: String
+    var color: PropertyColor = .blue
+}
+
 // MARK: - Related items
 
 struct FolderRelations: Codable, Hashable {
@@ -135,4 +143,6 @@ struct PersistedState: Codable {
     var folderViews: [String: FolderViewSet] = [:]
     var relations: [String: FolderRelations] = [:]
     var recentFolders: [String] = []
+    /// Optional so state files saved by older versions still load.
+    var folderIcons: [String: FolderIcon]?
 }

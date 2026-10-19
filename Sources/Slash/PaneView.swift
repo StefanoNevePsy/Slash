@@ -9,6 +9,7 @@ struct PaneView: View {
     @State private var renamingNickname: URL?
     @State private var nicknameText = ""
     @State private var showViewEditor = false
+    @State private var iconTarget: IdentifiedURL?
 
     private var tab: FolderTab { pane.activeTab }
     private var isFocused: Bool { workspace.focusedPaneID == pane.id }
@@ -35,6 +36,9 @@ struct PaneView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Shown in Slash only. The real file name is not changed.")
+        }
+        .sheet(item: $iconTarget) { target in
+            IconPickerView(path: target.url.path).environment(store)
         }
         .popover(isPresented: $showViewEditor) {
             FolderViewEditor(folderPath: folderPath)
@@ -67,6 +71,7 @@ struct PaneView: View {
                 .help("Sort, group & filter")
             Menu {
                 Button("Pin to Sidebar") { store.pin(folderPath) }
+                Button("Set Folder Icon…") { iconTarget = IdentifiedURL(url: tab.url) }
                 Button("New Folder") { newFolder() }
                 Button("Open in Finder") { NSWorkspace.shared.open(tab.url) }
                 Button("Open in Terminal") { openInTerminal(tab.url) }
@@ -190,6 +195,7 @@ struct PaneView: View {
                     Button("Open in Other Pane") { other.activeTab.navigate(to: urls[0]) }
                 }
                 Button("Pin to Sidebar") { store.pin(urls[0].path) }
+                Button("Set Icon…") { iconTarget = IdentifiedURL(url: urls[0]) }
             }
             Button("Quick Look") { QuickLook.show(urls[0]) }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting(urls) }
@@ -265,9 +271,7 @@ struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: item.path))
-                .resizable()
-                .frame(width: 18, height: 18)
+            FolderIconView(url: item.url, isDirectory: item.isDirectory, size: 18)
             Text(store.displayName(for: item.url))
                 .lineLimit(1)
             if store.state.nicknames[item.path] != nil {
@@ -311,7 +315,11 @@ struct TabStrip: View {
                     ForEach(pane.tabs) { tab in
                         let active = tab.id == pane.activeTabID
                         HStack(spacing: 4) {
-                            Image(systemName: "folder.fill").font(.caption).foregroundStyle(.secondary)
+                            if let icon = store.icon(for: tab.url.path) {
+                                Image(systemName: icon.symbol).font(.caption).foregroundStyle(icon.color.color)
+                            } else {
+                                Image(systemName: "folder.fill").font(.caption).foregroundStyle(.secondary)
+                            }
                             Text(tab.title).lineLimit(1).font(.callout)
                             if pane.tabs.count > 1 {
                                 Button { pane.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.caption2) }

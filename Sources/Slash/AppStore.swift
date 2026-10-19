@@ -114,6 +114,7 @@ final class AppStore {
         if let s = state.selections.removeValue(forKey: old) { state.selections[new] = s }
         if let n = state.nicknames.removeValue(forKey: old) { state.nicknames[new] = n }
         if let v = state.folderViews.removeValue(forKey: old) { state.folderViews[new] = v }
+        if let i = state.folderIcons?.removeValue(forKey: old) { state.folderIcons?[new] = i }
     }
 
     // MARK: Folder views
@@ -124,6 +125,18 @@ final class AppStore {
 
     func setViewSet(_ set: FolderViewSet, for folder: String) {
         state.folderViews[folder] = set
+    }
+
+    // MARK: Folder icons
+
+    func icon(for path: String) -> FolderIcon? {
+        state.folderIcons?[path]
+    }
+
+    func setIcon(_ icon: FolderIcon?, for path: String) {
+        var icons = state.folderIcons ?? [:]
+        icons[path] = icon
+        state.folderIcons = icons
     }
 
     // MARK: Recents

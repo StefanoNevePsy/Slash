@@ -41,6 +41,7 @@ struct SidebarView: View {
     @State private var newSpaceName = ""
     @State private var addingSpace = false
     @State private var liveItems: [FileItem] = []
+    @State private var iconTarget: IdentifiedURL?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,11 +51,16 @@ struct SidebarView: View {
                     ForEach(store.currentSpace?.pinnedPaths ?? [], id: \.self) { path in
                         let url = URL(fileURLWithPath: path)
                         Button { workspace.open(url) } label: {
-                            Label(store.displayName(for: url), systemImage: "folder")
+                            Label {
+                                Text(store.displayName(for: url))
+                            } icon: {
+                                FolderIconView(url: url, isDirectory: true, size: 15)
+                            }
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button("Open in New Tab") { workspace.open(url, newTab: true) }
+                            Button("Set Icon…") { iconTarget = IdentifiedURL(url: url) }
                             Button("Unpin") { store.unpin(path) }
                         }
                     }
@@ -79,7 +85,15 @@ struct SidebarView: View {
                 Section("Recent folders") {
                     ForEach(store.state.recentFolders.prefix(6), id: \.self) { path in
                         Button { workspace.open(URL(fileURLWithPath: path)) } label: {
-                            Label(store.displayName(for: URL(fileURLWithPath: path)), systemImage: "clock")
+                            Label {
+                                Text(store.displayName(for: URL(fileURLWithPath: path)))
+                            } icon: {
+                                if store.icon(for: path) != nil {
+                                    FolderIconView(url: URL(fileURLWithPath: path), isDirectory: true, size: 15)
+                                } else {
+                                    Image(systemName: "clock")
+                                }
+                            }
                         }
                         .buttonStyle(.plain)
                     }
@@ -88,6 +102,9 @@ struct SidebarView: View {
             .listStyle(.sidebar)
         }
         .task(id: store.currentSpace?.pinnedPaths) { await refreshLive() }
+        .sheet(item: $iconTarget) { target in
+            IconPickerView(path: target.url.path).environment(store)
+        }
         .alert("New Space", isPresented: $addingSpace) {
             TextField("Name", text: $newSpaceName)
             Button("Create") {
